@@ -48,9 +48,19 @@ func (opts *Options) MergeValues(p getter.Providers) (map[string]interface{}, er
 	for _, filePath := range opts.ValueFiles {
 		currentMap := map[string]interface{}{}
 
+		optional := false
+		if u, err := url.Parse(filePath); err == nil {
+			filePath = u.Path
+			optional = u.Query().Has("optional")
+		}
+
 		bytes, err := readFile(filePath, p)
 		if err != nil {
-			return nil, err
+			if optional && errors.Is(err, os.ErrNotExist) {
+				bytes = []byte{}
+			} else {
+				return nil, err
+			}
 		}
 
 		if err := yaml.Unmarshal(bytes, &currentMap); err != nil {

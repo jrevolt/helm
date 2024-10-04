@@ -1,0 +1,5 @@
+services:
+  helm:
+    image: registry.gitlab.com/jrevolt/cicd/tools/jrhelm:${TAG:-local}
+    build:
+      dockerfile: compose.dockerfile

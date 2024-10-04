@@ -16,6 +16,8 @@ limitations under the License.
 package main
 
 import (
+	"fmt"
+	"helm.sh/helm/v3/pkg/chart/loader"
 	"io"
 	"path/filepath"
 
@@ -57,21 +59,62 @@ func newDependencyUpdateCmd(cfg *action.Configuration, out io.Writer) *cobra.Com
 			if len(args) > 0 {
 				chartpath = filepath.Clean(args[0])
 			}
-			man := &downloader.Manager{
-				Out:              out,
-				ChartPath:        chartpath,
-				Keyring:          client.Keyring,
-				SkipUpdate:       client.SkipRefresh,
-				Getters:          getter.All(settings),
-				RegistryClient:   cfg.RegistryClient,
-				RepositoryConfig: settings.RepositoryConfig,
-				RepositoryCache:  settings.RepositoryCache,
-				Debug:            settings.Debug,
+
+			assert := func(err error) {
+				if err != nil {
+					panic(err)
+				}
 			}
-			if client.Verify {
-				man.Verify = downloader.VerifyAlways
+
+			var updated = map[string]bool{}
+
+			var update func(chartpath string) error
+			update = func(chartpath string) error {
+
+				if _, ok := updated[chartpath]; ok {
+					return nil // already updated
+				}
+
+				updated[chartpath] = true
+
+				println(chartpath)
+
+				ch, err := loader.LoadDir(chartpath)
+				assert(err)
+
+				for _, dep := range ch.Metadata.Dependencies {
+					// Check if the dependency is a local file path
+					if dep.Repository != "" && dep.Repository[:7] == "file://" {
+						localDepPath := dep.Repository[7:] // Remove "file://"
+						// Resolve the path relative to the current chart path
+						localDepFullPath := filepath.Join(chartpath, localDepPath)
+
+						// Recursively update the local dependency first
+						if err := update(localDepFullPath); err != nil {
+							return fmt.Errorf("failed to update local dependency %s: %w", dep.Name, err)
+						}
+					}
+				}
+
+				man := &downloader.Manager{
+					Out:              out,
+					ChartPath:        chartpath,
+					Keyring:          client.Keyring,
+					SkipUpdate:       client.SkipRefresh,
+					Getters:          getter.All(settings),
+					RegistryClient:   cfg.RegistryClient,
+					RepositoryConfig: settings.RepositoryConfig,
+					RepositoryCache:  settings.RepositoryCache,
+					Debug:            settings.Debug,
+				}
+				if client.Verify {
+					man.Verify = downloader.VerifyAlways
+				}
+				return man.Update()
 			}
-			return man.Update()
+
+			return update(chartpath)
+
 		},
 	}
 
